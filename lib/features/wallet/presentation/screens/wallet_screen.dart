@@ -15,16 +15,17 @@ final walletProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
   if (userId == null) return null;
 
   try {
-    // Try to fetch existing wallet
+    // Try to fetch the wallet for this user
     final wallet = await client
         .from('wallets')
         .select()
         .eq('user_id', userId)
         .maybeSingle();
 
-    // If wallet doesn't exist, create one
+    // The SQL trigger handles wallet creation on signup.
+    // We only create one here as a final safety fallback.
     if (wallet == null) {
-      final newWallet = await client
+      return await client
           .from('wallets')
           .insert({
             'user_id': userId,
@@ -33,12 +34,11 @@ final walletProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
           })
           .select()
           .single();
-      return newWallet;
     }
 
     return wallet;
   } catch (e) {
-    print('Error fetching wallet: $e');
+    debugPrint('❌ Error fetching/creating wallet: $e');
     return null;
   }
 });
@@ -68,7 +68,7 @@ class WalletScreen extends ConsumerWidget {
         data: (wallet) {
           final balance =
               wallet != null ? (wallet['balance'] as num).toDouble() : 0.0;
-          final walletId = wallet?['id'] as String?;
+          final walletId = wallet?['wallet_id'] as String?;
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(20),
@@ -484,22 +484,47 @@ class WalletScreen extends ConsumerWidget {
       final client = Supabase.instance.client;
       final userId = client.auth.currentUser?.id;
 
-      // Get current wallet balance
-      final wallet =
-          await client.from('wallets').select().eq('id', walletId).single();
+      if (userId == null) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('User session not found. Please log in again.'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+        return;
+      }
+
+      // Fetch current wallet for the logged-in user (safer than using walletId)
+      final wallet = await client
+          .from('wallets')
+          .select()
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (wallet == null) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Wallet not found. Please try again.'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+        return;
+      }
 
       final currentBalance = (wallet['balance'] as num).toDouble();
       final newBalance = currentBalance + amount;
 
-      // Update wallet balance
+      // Update wallet balance using userId to ensure consistency
       await client.from('wallets').update({
         'balance': newBalance,
         'updated_at': DateTime.now().toIso8601String(),
-      }).eq('id', walletId);
+      }).eq('user_id', userId);
 
       // Create transaction record
       await client.from('transactions').insert({
-        'wallet_id': walletId,
+        'wallet_id': wallet['wallet_id'],
         'user_id': userId,
         'amount': amount,
         'type': 'credit',

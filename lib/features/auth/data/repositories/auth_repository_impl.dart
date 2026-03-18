@@ -45,13 +45,23 @@ class AuthRepositoryImpl implements AuthRepository {
         password: password,
         data: {'full_name': fullName},
       );
-      final user = response.user;
-      if (user == null) return Left(AuthFailure('Sign up failed'));
 
-      // Wait briefly for DB trigger, then ensure profile exists
-      await Future.delayed(const Duration(milliseconds: 800));
-      final userEntity = await _getOrCreateProfile(user);
-      return Right(userEntity);
+      final user = response.user;
+      if (user == null) {
+        return Left(AuthFailure('Signup failed'));
+      }
+
+      // Profile and wallet are created automatically by the Supabase DB trigger.
+      // Return a local UserEntity immediately — the trigger runs server-side.
+      final profile = {
+        'id': user.id,
+        'email': email,
+        'full_name': fullName,
+        'role': 'user',
+        'created_at': DateTime.now().toIso8601String(),
+      };
+
+      return Right(UserModel.fromJson(profile));
     } on AuthException catch (e) {
       return Left(AuthFailure(e.message));
     } catch (e) {
@@ -95,7 +105,6 @@ class AuthRepositoryImpl implements AuthRepository {
     });
   }
 
-  /// Helper to ensure a profile exists in the 'users' table
   Future<UserEntity> _getOrCreateProfile(User user) async {
     final profile =
         await _client.from('users').select().eq('id', user.id).maybeSingle();
@@ -104,7 +113,6 @@ class AuthRepositoryImpl implements AuthRepository {
       return UserModel.fromJson(profile);
     }
 
-    // Fallback: Create profile if missing (e.g. trigger delay or failure)
     final newProfile = {
       'id': user.id,
       'email': user.email ?? '',
@@ -113,11 +121,7 @@ class AuthRepositoryImpl implements AuthRepository {
       'created_at': DateTime.now().toIso8601String(),
     };
 
-    try {
-      await _client.from('users').upsert(newProfile);
-    } catch (_) {
-      // Ignore upsert errors if it already exists by now
-    }
+    await _client.from('users').insert(newProfile);
 
     return UserModel.fromJson(newProfile);
   }
