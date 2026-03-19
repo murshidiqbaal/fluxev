@@ -136,11 +136,11 @@ class TransactionHistoryScreen extends ConsumerWidget {
         .eq('user_id', userId)
         .maybeSingle();
     if (wallet == null) return [];
-    
+
     final txns = await client
         .from('transactions')
         .select()
-        .eq('wallet_id', wallet['id'])
+        .eq('wallet_id', wallet['wallet_id'])
         .order('created_at', ascending: false);
     return List<Map<String, dynamic>>.from(txns);
   }

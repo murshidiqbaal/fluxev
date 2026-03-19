@@ -4,7 +4,12 @@ import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'package:flutter_animate/flutter_animate.dart';
+import '../../../../shared/widgets/glass_card.dart';
+import '../../../../shared/widgets/neon_button.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/app_formatters.dart';
+import '../../../../core/utils/deep_link_utils.dart';
 
 class QrScannerScreen extends ConsumerStatefulWidget {
   const QrScannerScreen({super.key});
@@ -32,64 +37,80 @@ class _QrScannerScreenState extends ConsumerState<QrScannerScreen> {
     super.dispose();
   }
 
+  Map<String, dynamic>? _validatedConnector;
+  bool _validating = false;
+
   void _onDetect(BarcodeCapture capture) async {
-    if (_scanned) return;
+    if (_scanned || _validating) return;
     final barcodes = capture.barcodes;
     if (barcodes.isEmpty) return;
     final rawValue = barcodes.first.rawValue;
     if (rawValue == null) return;
 
-    _scanned = true;
-    await _controller?.stop();
+    // Parse the data: URI, split format, or pure UUID
+    final connectorId = DeepLinkUtils.extractConnectorId(rawValue);
 
-    // Parse the QR data: station_id|connector_id
-    try {
-      final parts = rawValue.split('|');
-      if (parts.length >= 2) {
-        final stationId = parts[0];
-        final connectorId = parts[1];
-        if (!mounted) return;
-        await _startChargingSession(stationId, connectorId);
-      } else {
-        if (!mounted) return;
-        _showError('Invalid QR code format');
-        _scanned = false;
-        _controller?.start();
-      }
-    } catch (_) {
+    if (connectorId != null) {
+      await _validateConnector(connectorId);
+    } else {
       if (!mounted) return;
-      _showError('Unable to read QR code');
-      _scanned = false;
-      _controller?.start();
+      _showError('Invalid QR code format');
     }
   }
 
-  Future<void> _startChargingSession(
-      String stationId, String connectorId) async {
-    // Show loading dialog
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(
-        child: CircularProgressIndicator(color: AppColors.primary),
-      ),
-    );
+  Future<void> _validateConnector(String connectorId) async {
+    setState(() => _validating = true);
 
     try {
       final client = Supabase.instance.client;
       final userId = client.auth.currentUser?.id;
       if (userId == null) throw Exception('Not authenticated');
 
-      // Verify connector availability
-      final connector = await client
-          .from('connectors')
+      // 1. Check Wallet Balance
+      final wallet = await client
+          .from('wallets')
           .select()
-          .eq('id', connectorId)
+          .eq('user_id', userId)
           .maybeSingle();
 
-      if (connector?['status'] != 'available') {
-        throw Exception('This connector is currently busy');
+      final balance = (wallet?['balance'] as num?)?.toDouble() ?? 0.0;
+      if (balance < 50.0) {
+        throw Exception('Minimum ₹50 balance required to start charging');
       }
+
+      // 2. Fetch Connector & Station info
+      final connector = await client.from('connectors').select('''
+            *,
+            stations(name, address, price_per_kwh)
+          ''').eq('id', connectorId).maybeSingle();
+
+      if (connector == null) throw Exception('Connector not found');
+
+      if (connector['status'] != 'available') {
+        throw Exception('This connector is currently ${connector['status']}');
+      }
+
+      setState(() {
+        _validatedConnector = connector;
+        _scanned = true;
+        _validating = false;
+      });
+      _controller?.stop();
+    } catch (e) {
+      setState(() => _validating = false);
+      _showError(e.toString().replaceAll('Exception: ', ''));
+    }
+  }
+
+  Future<void> _startChargingSession() async {
+    if (_validatedConnector == null) return;
+    final connectorId = _validatedConnector!['id'];
+
+    setState(() => _validating = true);
+
+    try {
+      final client = Supabase.instance.client;
+      final userId = client.auth.currentUser?.id;
 
       // Update connector to busy
       await client
@@ -108,20 +129,20 @@ class _QrScannerScreenState extends ConsumerState<QrScannerScreen> {
           .maybeSingle();
 
       if (!mounted) return;
-      Navigator.pop(context); // close loading
       context.pushReplacement('/session/${session?['id']}');
     } catch (e) {
-      if (!mounted) return;
-      Navigator.pop(context); // close loading
+      setState(() => _validating = false);
       _showError(e.toString().replaceAll('Exception: ', ''));
-      _scanned = false;
-      _controller?.start();
     }
   }
 
   void _showError(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: AppColors.error),
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: AppColors.error,
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
@@ -133,7 +154,9 @@ class _QrScannerScreenState extends ConsumerState<QrScannerScreen> {
         children: [
           MobileScanner(controller: _controller!, onDetect: _onDetect),
           // Dark overlay
-          Container(color: Colors.black.withOpacity(0.45)),
+          Container(
+            color: Colors.black.withOpacity(_scanned ? 0.8 : 0.45),
+          ).animate().fadeIn(),
           // Scan frame cutout
           Center(
             child: Container(
@@ -180,29 +203,148 @@ class _QrScannerScreenState extends ConsumerState<QrScannerScreen> {
               ),
             ),
           ),
-          // Bottom
+          // Bottom Section or Validation Card
           Positioned(
-            bottom: 60,
-            left: 0,
-            right: 0,
-            child: Column(
-              children: [
-                const Icon(Icons.bolt_rounded,
-                    color: AppColors.primary, size: 32),
-                const SizedBox(height: 8),
-                const Text('Place QR code inside the frame',
-                    style: TextStyle(color: Colors.white70, fontSize: 14)),
-                const SizedBox(height: 16),
-                IconButton(
-                  onPressed: () => _controller?.toggleTorch(),
-                  icon: const Icon(Icons.flashlight_on_rounded,
-                      color: Colors.white, size: 28),
+            bottom: 40,
+            left: 20,
+            right: 20,
+            child: _validatedConnector != null
+                ? _buildValidationCard()
+                : _buildScannerInstructions(),
+          ),
+
+          if (_validating)
+            Container(
+              color: Colors.black54,
+              child: const Center(
+                child: CircularProgressIndicator(color: AppColors.primary),
+              ),
+            ).animate().fadeIn(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScannerInstructions() {
+    return Column(
+      children: [
+        const Icon(Icons.bolt_rounded, color: AppColors.primary, size: 32),
+        const SizedBox(height: 8),
+        const Text('Place QR code inside the frame',
+            style: TextStyle(color: Colors.white70, fontSize: 14)),
+        const SizedBox(height: 16),
+        IconButton(
+          onPressed: () => _controller?.toggleTorch(),
+          icon: const Icon(Icons.flashlight_on_rounded,
+              color: Colors.white, size: 28),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildValidationCard() {
+    final station = _validatedConnector!['stations'];
+    final power = (_validatedConnector!['max_power_kw'] as num).toDouble();
+    final price = (station['price_per_kwh'] as num).toDouble();
+
+    return GlassCard(
+      borderColor: AppColors.primary,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.1),
+                  shape: BoxShape.circle,
                 ),
-              ],
+                child: const Icon(Icons.ev_station_rounded,
+                    color: AppColors.primary, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      station['name'],
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    Text(
+                      _validatedConnector!['connector_type'],
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          const Divider(color: Colors.white10),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildDetail('Power', '${power.toStringAsFixed(0)} kW'),
+              _buildDetail('Price', AppFormatters.formatCurrency(price)),
+              _buildDetail('Status', 'Ready', color: AppColors.success),
+            ],
+          ),
+          const SizedBox(height: 24),
+          NeonButton(
+            label: 'Start Charging Session',
+            icon: Icons.bolt_rounded,
+            onPressed: _startChargingSession,
+          ),
+          const SizedBox(height: 12),
+          Center(
+            child: TextButton(
+              onPressed: () {
+                setState(() {
+                  _scanned = false;
+                  _validatedConnector = null;
+                });
+                _controller?.start();
+              },
+              child: const Text(
+                'Cancel & Rescan',
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
             ),
           ),
         ],
       ),
+    ).animate().slideY(begin: 1, duration: 400.ms, curve: Curves.easeOut);
+  }
+
+  Widget _buildDetail(String label, String value, {Color? color}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.bold,
+            color: color ?? Colors.white,
+          ),
+        ),
+      ],
     );
   }
 }

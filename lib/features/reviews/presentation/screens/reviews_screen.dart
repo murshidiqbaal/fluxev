@@ -3,6 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/glass_card.dart';
 import '../../../../shared/widgets/neon_button.dart';
@@ -32,7 +33,7 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
   Future<void> _loadReviews() async {
     final data = await Supabase.instance.client
         .from('reviews')
-        .select('*, users(full_name)')
+        .select('*, user:users(full_name)')
         .eq('station_id', widget.stationId)
         .order('created_at', ascending: false);
     setState(() {
@@ -108,7 +109,9 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
                         child: Padding(
                           padding: const EdgeInsets.only(right: 4),
                           child: Icon(
-                            i < _userRating ? Icons.star_rounded : Icons.star_border_rounded,
+                            i < _userRating
+                                ? Icons.star_rounded
+                                : Icons.star_border_rounded,
                             color: i < _userRating
                                 ? AppColors.warning
                                 : AppColors.textSecondary,
@@ -151,8 +154,8 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
                                 color: AppColors.textSecondary, size: 52),
                             const SizedBox(height: 12),
                             const Text('No reviews yet. Be the first!',
-                                style: TextStyle(
-                                    color: AppColors.textSecondary)),
+                                style:
+                                    TextStyle(color: AppColors.textSecondary)),
                           ],
                         ),
                       )
@@ -163,8 +166,8 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
                         itemBuilder: (context, i) {
                           final r = _reviews[i];
                           final rating = r['rating'] as int;
-                          final name =
-                              (r['users']?['full_name'] as String?) ?? 'Anonymous';
+                          final name = (r['users']?['full_name'] as String?) ??
+                              'Anonymous';
                           return GlassCard(
                             padding: const EdgeInsets.all(14),
                             child: Column(

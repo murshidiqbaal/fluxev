@@ -31,7 +31,7 @@ class _ChargingSessionScreenState extends ConsumerState<ChargingSessionScreen> {
   bool _stopping = false;
   Map<String, dynamic>? _sessionData;
   bool _loading = true;
-
+  double _maxPowerKw = 7.2; // default
   final _client = Supabase.instance.client;
 
   @override
@@ -47,25 +47,32 @@ class _ChargingSessionScreenState extends ConsumerState<ChargingSessionScreen> {
             connectors(id, max_power_kw, stations(price_per_kwh))
           ''').eq('id', widget.sessionId).maybeSingle();
 
+      if (session == null) throw Exception('Session not found');
+
       setState(() {
         _sessionData = session;
         _pricePerKwh =
-            (session!['connectors']['stations']['price_per_kwh'] as num)
+            (session['connectors']['stations']['price_per_kwh'] as num)
                 .toDouble();
+        _maxPowerKw = (session['connectors']['max_power_kw'] as num).toDouble();
         _loading = false;
       });
       _startTimer();
     } catch (e) {
       setState(() => _loading = false);
+      _showError(e.toString());
     }
   }
 
   void _startTimer() {
+    // Energy per second: maxPowerKw / 3600 (kWh/s)
+    final energyPerSecond = _maxPowerKw / 3600;
+
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
       setState(() {
         _elapsed += const Duration(seconds: 1);
-        // Simulate energy: 7.2 kW charger -> 2 Wh/s -> 0.002 kWh/s
-        _energyConsumed += 0.002;
+        _energyConsumed += energyPerSecond;
         _totalCost = _energyConsumed * _pricePerKwh;
       });
     });
@@ -77,22 +84,31 @@ class _ChargingSessionScreenState extends ConsumerState<ChargingSessionScreen> {
     _timer?.cancel();
 
     try {
-      // Get wallet
       final userId = _client.auth.currentUser?.id;
       if (userId == null) throw Exception('Not logged in');
 
+      // 1. Calculate & Validate Wallet
       final wallet = await _client
           .from('wallets')
           .select()
           .eq('user_id', userId)
           .maybeSingle();
 
-      final balance = (wallet?['balance'] as num).toDouble();
-      if (balance < _totalCost) throw Exception('Insufficient wallet balance');
+      final balance = (wallet?['balance'] as num?)?.toDouble() ?? 0.0;
+      if (balance < _totalCost) {
+        // Allow session to stop but maybe mark as 'failed_payment' or prompt to add money
+        // For now, we'll just throw error as per plan
+        throw Exception('Insufficient wallet balance to pay ₹${_totalCost.toStringAsFixed(2)}');
+      }
 
       final connectorId = _sessionData!['connector_id'];
 
-      // Update session
+      // 2. Mark Connector AVAILABLE (important to free it up immediately)
+      await _client
+          .from('connectors')
+          .update({'status': 'available'}).eq('id', connectorId);
+
+      // 3. Update Session to COMPLETED
       await _client.from('charging_sessions').update({
         'end_time': DateTime.now().toIso8601String(),
         'energy_consumed_kwh': _energyConsumed,
@@ -100,19 +116,14 @@ class _ChargingSessionScreenState extends ConsumerState<ChargingSessionScreen> {
         'status': 'completed',
       }).eq('id', widget.sessionId);
 
-      // Mark connector available
-      await _client
-          .from('connectors')
-          .update({'status': 'available'}).eq('id', connectorId);
-
-      // Deduct from wallet
+      // 4. Deduct Wallet Balance
       final newBalance = balance - _totalCost;
       await _client.from('wallets').update({
         'balance': newBalance,
         'updated_at': DateTime.now().toIso8601String()
       }).eq('user_id', userId);
 
-      // Log transaction
+      // 5. Create Transaction Log
       await _client.from('transactions').insert({
         'wallet_id': wallet?['id'],
         'session_id': widget.sessionId,
@@ -125,12 +136,24 @@ class _ChargingSessionScreenState extends ConsumerState<ChargingSessionScreen> {
     } catch (e) {
       setState(() => _stopping = false);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(e.toString().replaceAll('Exception: ', '')),
-            backgroundColor: AppColors.error),
-      );
+      _showError(e.toString().replaceAll('Exception: ', ''));
+      
+      // If payment failed but timer stopped, we should ideally restart timer or allow retry
+      // For simplicity, we'll just let the user try stopping again after adding balance
+      if (_timer == null || !_timer!.isActive) {
+        _startTimer(); // Restart simulation if it was stopped but DB update failed
+      }
     }
+  }
+
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: AppColors.error,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   void _showSummaryDialog() {
