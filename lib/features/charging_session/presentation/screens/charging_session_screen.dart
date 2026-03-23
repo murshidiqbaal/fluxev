@@ -43,8 +43,19 @@ class _ChargingSessionScreenState extends ConsumerState<ChargingSessionScreen> {
   Future<void> _loadSession() async {
     try {
       final session = await _client.from('charging_sessions').select('''
-            *,
-            connectors(connector_id, max_power_kw, stations(price_per_kwh))
+            session_id,
+            user_id,
+            connector_id,
+            start_time,
+            end_time,
+            energy_consumed_kwh,
+            total_cost,
+            status,
+            connectors!charging_sessions_connector_id_fkey(
+              connector_id, 
+              max_power_kw, 
+              stations!connectors_station_id_fkey(station_id, price_per_kwh)
+            )
           ''').eq('session_id', widget.sessionId).maybeSingle();
 
       if (session == null) throw Exception('Session not found');

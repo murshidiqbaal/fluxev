@@ -43,15 +43,21 @@ class Reservation {
 
   factory Reservation.fromJson(Map<String, dynamic> json) {
     return Reservation(
-      id: json['reservation_id'] as String,
-      userId: json['user_id'] as String,
-      stationId: json['station_id'] as String,
-      connectorId: json['connector_id'] as String,
-      reservedStart: DateTime.parse(json['reserved_start']),
-      reservedEnd: DateTime.parse(json['reserved_end']),
+      id: (json['reservation_id'] ?? '') as String,
+      userId: (json['user_id'] ?? '') as String,
+      stationId: (json['station_id'] ?? '') as String,
+      connectorId: (json['connector_id'] ?? '') as String,
+      reservedStart: json['reserved_start'] != null 
+          ? DateTime.parse(json['reserved_start']) 
+          : DateTime.now(),
+      reservedEnd: json['reserved_end'] != null 
+          ? DateTime.parse(json['reserved_end']) 
+          : DateTime.now().add(const Duration(hours: 1)),
       reservationFee: (json['reservation_fee'] ?? 0).toDouble(),
-      status: ReservationStatus.fromString(json['status']),
-      createdAt: DateTime.parse(json['created_at']),
+      status: ReservationStatus.fromString(json['status'] ?? 'active'),
+      createdAt: json['created_at'] != null 
+          ? DateTime.parse(json['created_at']) 
+          : DateTime.now(),
       stationName: json['stations']?['name'],
       connectorType: json['connectors']?['connector_type'],
     );

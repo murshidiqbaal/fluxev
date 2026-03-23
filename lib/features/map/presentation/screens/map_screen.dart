@@ -8,6 +8,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../routing/app_router.dart';
@@ -167,6 +168,31 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     if (!station.isActive) return Icons.power_off_rounded;
     if (station.hasAvailableConnectors) return Icons.bolt_rounded;
     return Icons.timer_rounded;
+  }
+
+  Future<void> _openMapsNavigation(double lat, double lng) async {
+    final googleMapsUrl =
+        'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng';
+    final appleMapsUrl = 'http://maps.apple.com/?daddr=$lat,$lng';
+
+    if (Theme.of(context).platform == TargetPlatform.iOS) {
+      if (await canLaunchUrl(Uri.parse(appleMapsUrl))) {
+        await launchUrl(Uri.parse(appleMapsUrl),
+            mode: LaunchMode.externalApplication);
+        return;
+      }
+    }
+
+    if (await canLaunchUrl(Uri.parse(googleMapsUrl))) {
+      await launchUrl(Uri.parse(googleMapsUrl),
+          mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not launch maps application')),
+        );
+      }
+    }
   }
 
   Future<void> _getUserLocation() async {
@@ -556,9 +582,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                             border: Border.all(color: Colors.white.withOpacity(0.1)),
                           ),
                           child: IconButton(
-                            onPressed: () {
-                              // Deep link to maps could be added here
-                            },
+                            onPressed: () => _openMapsNavigation(
+                              _selectedStation!.latLng.latitude,
+                              _selectedStation!.latLng.longitude,
+                            ),
                             icon: const Icon(Icons.directions_rounded, color: AppColors.primary),
                             padding: const EdgeInsets.all(12),
                           ),

@@ -80,13 +80,13 @@ class _QrScannerScreenState extends ConsumerState<QrScannerScreen> {
 
       // 2. Fetch Connector & Station info
       final connector = await client.from('connectors').select('''
-            id,
+            connector_id,
             status,
             connector_type,
             max_power_kw,
             station_id,
-            stations(
-              id,
+            stations!connectors_station_id_fkey(
+              station_id,
               name,
               address,
               price_per_kwh
@@ -138,7 +138,7 @@ class _QrScannerScreenState extends ConsumerState<QrScannerScreen> {
 
   Future<void> _startChargingSession() async {
     if (_validatedConnector == null) return;
-    final connectorId = _validatedConnector!['id'];
+    final connectorId = _validatedConnector!['connector_id'];
 
     setState(() => _validating = true);
 
@@ -172,7 +172,7 @@ class _QrScannerScreenState extends ConsumerState<QrScannerScreen> {
           .maybeSingle();
 
       if (!mounted) return;
-      context.pushReplacement('/session/${session?['id']}');
+      context.pushReplacement('/session/${session?['session_id']}');
     } catch (e) {
       setState(() => _validating = false);
       _showError(e.toString().replaceAll('Exception: ', ''));

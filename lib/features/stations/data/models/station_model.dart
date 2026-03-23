@@ -22,7 +22,7 @@ class StationModel extends StationEntity {
         connectors.where((c) => c['status'] == 'available').length;
 
     return StationModel(
-      id: json['station_id'] as String,
+      id: (json['station_id'] ?? json['id']) as String,
       name: json['name'] as String,
       address: json['address'] as String,
       latitude: (json['latitude'] as num).toDouble(),

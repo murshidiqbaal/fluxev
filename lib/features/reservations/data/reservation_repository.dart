@@ -21,15 +21,15 @@ class ReservationRepository {
   reservation_fee,
   status,
   created_at,
-  stations:station_id (
-    station_id:id,
+  stations!reservations_station_id_fkey (
+    station_id,
     name,
     address,
     latitude,
     longitude
   ),
-  connectors:connector_id (
-    connector_id:id,
+  connectors!reservations_connector_id_fkey (
+    connector_id,
     connector_type,
     max_power_kw,
     status

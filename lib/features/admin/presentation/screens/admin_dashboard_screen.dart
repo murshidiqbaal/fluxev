@@ -30,8 +30,14 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
 
   Future<void> _loadStations() async {
     final data = await _client.from('stations').select('''
-      *,
-      connectors(id, status, connector_type)
+      station_id,
+      name,
+      address,
+      latitude,
+      longitude,
+      price_per_kwh,
+      status,
+      connectors(connector_id, status, connector_type)
     ''').order('created_at', ascending: false);
     setState(() {
       _stations = List<Map<String, dynamic>>.from(data);
@@ -258,7 +264,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                                           : AppColors.markerOffline;
                                   return GestureDetector(
                                     onTap: () => _toggleConnector(
-                                        c['id'] as String, status),
+                                        c['connector_id'] as String, status),
                                     child: Container(
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 12, vertical: 6),

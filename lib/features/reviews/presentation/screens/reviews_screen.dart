@@ -33,7 +33,7 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
   Future<void> _loadReviews() async {
     final data = await Supabase.instance.client
         .from('reviews')
-        .select('*, user:users(full_name)')
+        .select('*, users(full_name)')
         .eq('station_id', widget.stationId)
         .order('created_at', ascending: false);
     setState(() {
