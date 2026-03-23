@@ -12,6 +12,7 @@ class StationModel extends StationEntity {
     required super.availableConnectors,
     required super.totalConnectors,
     super.avgRating,
+    required super.connectors,
   });
 
   factory StationModel.fromJson(Map<String, dynamic> json) {
@@ -21,7 +22,7 @@ class StationModel extends StationEntity {
         connectors.where((c) => c['status'] == 'available').length;
 
     return StationModel(
-      id: json['id'] as String,
+      id: json['station_id'] as String,
       name: json['name'] as String,
       address: json['address'] as String,
       latitude: (json['latitude'] as num).toDouble(),
@@ -31,6 +32,14 @@ class StationModel extends StationEntity {
       totalConnectors: total,
       availableConnectors: available,
       avgRating: (json['avg_rating'] as num?)?.toDouble(),
+      connectors: (json['connectors'] as List?)?.map((c) {
+            final map = Map<String, dynamic>.from(c);
+            if (map.containsKey('connector_id')) {
+              map['id'] = map['connector_id'];
+            }
+            return map;
+          }).toList() ??
+          [],
     );
   }
 }

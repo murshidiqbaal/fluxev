@@ -132,7 +132,7 @@ class TransactionHistoryScreen extends ConsumerWidget {
     if (userId == null) return [];
     final wallet = await client
         .from('wallets')
-        .select()
+        .select('wallet_id, user_id, balance, created_at, updated_at')
         .eq('user_id', userId)
         .maybeSingle();
     if (wallet == null) return [];

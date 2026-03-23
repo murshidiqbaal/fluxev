@@ -11,6 +11,7 @@ class StationEntity {
   final int availableConnectors;
   final int totalConnectors;
   final double? avgRating;
+  final List<Map<String, dynamic>> connectors;
 
   const StationEntity({
     required this.id,
@@ -23,6 +24,7 @@ class StationEntity {
     required this.availableConnectors,
     required this.totalConnectors,
     this.avgRating,
+    this.connectors = const [],
   });
 
   LatLng get latLng => LatLng(latitude, longitude);

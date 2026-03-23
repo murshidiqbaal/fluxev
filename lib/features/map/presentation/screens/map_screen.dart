@@ -92,7 +92,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final client = Supabase.instance.client;
     final data = await client.from('stations').select('''
       *,
-      connectors(id, status, connector_type, max_power_kw)
+      connectors(connector_id, status, connector_type, max_power_kw)
     ''');
     return (data as List).map((j) => StationModel.fromJson(j)).toList();
   }
@@ -112,32 +112,61 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   Marker _buildMarker(StationEntity station) {
+    final isSelected = _selectedStation?.id == station.id;
+    final color = _markerColor(station);
+
     return Marker(
-      width: 50,
-      height: 50,
+      width: 60,
+      height: 60,
       point: station.latLng,
       child: GestureDetector(
         onTap: () => setState(() => _selectedStation = station),
-        child: Container(
-          decoration: BoxDecoration(
-            color: _markerColor(station),
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: _markerColor(station).withOpacity(0.5),
-                blurRadius: 8,
-                spreadRadius: 2,
+        child: AnimatedContainer(
+          duration: 300.ms,
+          curve: Curves.easeOutBack,
+          transform: Matrix4.identity()..scale(isSelected ? 1.2 : 1.0),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              // Glow effect
+              Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: color.withOpacity(0.5),
+                      blurRadius: isSelected ? 20 : 12,
+                      spreadRadius: isSelected ? 4 : 2,
+                    ),
+                  ],
+                ),
+              ),
+              // Marker body
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: color,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 2),
+                ),
+                child: Icon(
+                  _markerIcon(station),
+                  color: Colors.white,
+                  size: 20,
+                ),
               ),
             ],
-          ),
-          child: const Icon(
-            Icons.location_on,
-            color: Colors.white,
-            size: 28,
           ),
         ),
       ),
     );
+  }
+
+  IconData _markerIcon(StationEntity station) {
+    if (!station.isActive) return Icons.power_off_rounded;
+    if (station.hasAvailableConnectors) return Icons.bolt_rounded;
+    return Icons.timer_rounded;
   }
 
   Future<void> _getUserLocation() async {
@@ -264,6 +293,20 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       urlTemplate:
                           'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                       userAgentPackageName: 'com.fluxev.flux_ev',
+                      tileBuilder: (context, tileWidget, tile) {
+                        return ColorFiltered(
+                          colorFilter: const ColorFilter.matrix([
+                            -1, 0, 0, 0, 255, // Red
+                            0, -1, 0, 0, 255, // Green
+                            0, 0, -1, 0, 255, // Blue
+                            0, 0, 0, 1, 0,    // Alpha
+                          ]),
+                          child: Opacity(
+                            opacity: 0.85,
+                            child: tileWidget,
+                          ),
+                        );
+                      },
                     ),
                     // Marker layers
                     MarkerLayer(
@@ -297,7 +340,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   ],
                 ),
 
-          // Top header bar
+          // Top Search Bar
           Positioned(
             top: 0,
             left: 0,
@@ -305,194 +348,226 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             child: SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: GlassCard(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 12),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.bolt_rounded,
-                                color: AppColors.primary, size: 20),
-                            const SizedBox(width: 8),
-                            const Text('FLUXEV',
-                                style: TextStyle(
-                                    color: AppColors.primary,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: 3)),
-                            const Spacer(),
-                            stationsAsync
-                                    .whenData(
-                                      (s) => Text(
-                                        '${s.where((x) => x.hasAvailableConnectors).length} Available',
-                                        style: const TextStyle(
-                                            color: AppColors.markerAvailable,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600),
-                                      ),
-                                    )
-                                    .valueOrNull ??
-                                const SizedBox.shrink(),
-                            const SizedBox(width: 8),
-                            IconButton(
-                              onPressed: () => ref
-                                  .read(authNotifierProvider.notifier)
-                                  .signOut(),
-                              icon: const Icon(
-                                Icons.logout_rounded,
-                                color: AppColors.error,
-                                size: 18,
-                              ),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              tooltip: 'Logout',
+                child: Hero(
+                  tag: 'search_bar',
+                  child: GlassCard(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    borderRadius: 30,
+                    child: Row(
+                      children: [
+                        const Icon(Icons.search_rounded, color: AppColors.primary, size: 24),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: TextField(
+                            style: TextStyle(color: Colors.white, fontSize: 15),
+                            decoration: InputDecoration(
+                              hintText: 'Search stations, location...',
+                              hintStyle: TextStyle(color: Colors.white70, fontSize: 14),
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              filled: false,
+                              contentPadding: EdgeInsets.zero,
                             ),
-                          ],
+                          ),
                         ),
-                      ),
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.tune_rounded, color: AppColors.primary, size: 18),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
-            ).animate().slideY(begin: -1, duration: 500.ms),
+            ).animate().slideY(begin: -1, duration: 600.ms, curve: Curves.easeOutCubic),
           ),
 
-          // Bottom action bar
+          // Right Floating Floating Controls
           Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
+            right: 16,
+            bottom: _selectedStation != null ? 320 : 100,
+            child: Column(
+              children: [
+                _CircularGlassButton(
+                  icon: Icons.refresh_rounded,
+                  onTap: _fetchAndBuildMarkers,
+                ),
+                const SizedBox(height: 12),
+                _CircularGlassButton(
+                  icon: Icons.filter_list_rounded,
+                  onTap: _showNearbyStationsSheet,
+                ),
+                const SizedBox(height: 12),
+                _CircularGlassButton(
+                  icon: Icons.my_location_rounded,
+                  onTap: _getUserLocation,
+                  isLoading: _locationLoading,
+                ),
+              ],
+            ).animate(target: _selectedStation != null ? 1 : 0).moveY(end: -220, duration: 300.ms),
+          ),
+
+          // Bottom Bar (Horizontal glass)
+          Positioned(
+            bottom: 20,
+            left: 16,
+            right: 16,
             child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
+              child: GlassCard(
+                borderRadius: 25,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    _ActionButton(
+                    _CompactActionButton(
                       icon: Icons.qr_code_scanner_rounded,
                       label: 'Scan QR',
                       onTap: () => context.push(AppRoutes.qrScanner),
                     ),
-                    _ActionButton(
-                      icon: Icons.account_balance_wallet_outlined,
+                    _CompactActionButton(
+                      icon: Icons.account_balance_wallet_rounded,
                       label: 'Wallet',
-                      onTap: () {
-                        // Navigate to wallet screen
-                        context.push(AppRoutes.wallet);
-                      },
+                      onTap: () => context.push(AppRoutes.wallet),
                     ),
-                    _ActionButton(
-                      icon: Icons.my_location_rounded,
-                      label: 'My Location',
-                      onTap: _locationLoading ? null : _getUserLocation,
-                      isLoading: _locationLoading,
-                    ),
-                    _ActionButton(
-                      icon: Icons.location_searching,
-                      label: 'Nearby',
-                      onTap: _userLocation == null
-                          ? null
-                          : _showNearbyStationsSheet,
+                    _CompactActionButton(
+                      icon: Icons.event_note_rounded,
+                      label: 'Bookings',
+                      onTap: () => context.push(AppRoutes.myReservations),
                     ),
                   ],
                 ),
               ),
-            ).animate().slideY(begin: 1, duration: 500.ms),
+            ).animate().slideY(begin: 1, duration: 600.ms, curve: Curves.easeOutCubic),
           ),
 
-          // Selected Station Card
+          // Selected Station Card (Sliding panel)
           if (_selectedStation != null)
             Positioned(
-              bottom: 110,
+              bottom: 100,
               left: 16,
               right: 16,
               child: GlassCard(
-                borderColor: _markerColor(_selectedStation!),
+                borderRadius: 24,
+                borderColor: _markerColor(_selectedStation!).withOpacity(0.5),
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
                         Container(
-                          width: 10,
-                          height: 10,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
-                            color: _markerColor(_selectedStation!),
-                            shape: BoxShape.circle,
+                            color: _markerColor(_selectedStation!).withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(20),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          _selectedStation!.isActive
-                              ? _selectedStation!.hasAvailableConnectors
-                                  ? 'Available'
-                                  : 'All Busy'
-                              : 'Offline',
-                          style: TextStyle(
-                            color: _markerColor(_selectedStation!),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  color: _markerColor(_selectedStation!),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                _selectedStation!.isActive
+                                    ? _selectedStation!.hasAvailableConnectors
+                                        ? 'Available'
+                                        : 'Busy'
+                                    : 'Offline',
+                                style: TextStyle(
+                                  color: _markerColor(_selectedStation!),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         const Spacer(),
                         if (_userLocation != null)
                           Text(
-                            '${DistanceHelper.calculateDistance(_userLocation!, _selectedStation!.latLng).toStringAsFixed(2)} km away',
-                            style: const TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 11,
-                            ),
+                            '${DistanceHelper.calculateDistance(_userLocation!, _selectedStation!.latLng).toStringAsFixed(1)} km',
+                            style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600),
                           ),
-                        const SizedBox(width: 8),
                         IconButton(
-                          onPressed: () =>
-                              setState(() => _selectedStation = null),
-                          icon: const Icon(Icons.close, size: 18),
-                          color: AppColors.textSecondary,
+                          onPressed: () => setState(() => _selectedStation = null),
+                          icon: const Icon(Icons.close_rounded, size: 20, color: Colors.white70),
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 12),
                     Text(
                       _selectedStation!.name,
-                      style: Theme.of(context).textTheme.titleLarge,
+                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: -0.5),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       _selectedStation!.address,
-                      style: Theme.of(context).textTheme.bodyMedium,
+                      style: const TextStyle(color: Colors.white60, fontSize: 13),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 16),
                     Row(
                       children: [
-                        _InfoChip(
-                          label:
-                              '${_selectedStation!.availableConnectors}/${_selectedStation!.totalConnectors} ports',
-                          icon: Icons.power_outlined,
+                        _DetailChip(
+                          icon: Icons.power_rounded,
+                          label: '${_selectedStation!.availableConnectors}/${_selectedStation!.totalConnectors} Available',
                         ),
                         const SizedBox(width: 8),
-                        _InfoChip(
-                          label:
-                              '₹${_selectedStation!.pricePerKwh.toStringAsFixed(2)}/kWh',
+                        _DetailChip(
                           icon: Icons.bolt_rounded,
+                          label: '₹${_selectedStation!.pricePerKwh}/kWh',
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: () =>
-                            context.push('/station/${_selectedStation!.id}'),
-                        child: const Text('View Station Details'),
-                      ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () => context.push('/station/${_selectedStation!.id}'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: AppColors.background,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            ),
+                            child: const Text('RESERVE NOW'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.white.withOpacity(0.1)),
+                          ),
+                          child: IconButton(
+                            onPressed: () {
+                              // Deep link to maps could be added here
+                            },
+                            icon: const Icon(Icons.directions_rounded, color: AppColors.primary),
+                            padding: const EdgeInsets.all(12),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ).animate().slideY(begin: 0.3, duration: 300.ms),
+              ).animate().slideY(begin: 1, duration: 400.ms, curve: Curves.easeOutBack).fadeIn(),
             ),
         ],
       ),
@@ -500,74 +575,104 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 }
 
-// Enhanced Action Button with loading state
-class _ActionButton extends StatelessWidget {
+class _CircularGlassButton extends StatelessWidget {
   final IconData icon;
-  final String label;
   final VoidCallback? onTap;
   final bool isLoading;
 
-  const _ActionButton({
+  const _CircularGlassButton({
     required this.icon,
-    required this.label,
     this.onTap,
     this.isLoading = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isDisabled = onTap == null;
-
-    return GestureDetector(
-      onTap: isDisabled ? null : onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: AppColors.surface.withOpacity(isDisabled ? 0.5 : 0.9),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isDisabled
-                ? AppColors.cardBorder.withOpacity(0.5)
-                : AppColors.cardBorder,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.primary.withOpacity(isDisabled ? 0.05 : 0.1),
-              blurRadius: 10,
-            ),
-          ],
+    return GlassCard(
+      padding: EdgeInsets.zero,
+      borderRadius: 25,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(25),
+        child: Container(
+          width: 50,
+          height: 50,
+          alignment: Alignment.center,
+          child: isLoading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                )
+              : Icon(icon, color: AppColors.primary, size: 22),
         ),
+      ),
+    );
+  }
+}
+
+class _CompactActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _CompactActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (isLoading)
-              const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation(AppColors.primary),
-                ),
-              )
-            else
-              Icon(
-                icon,
-                color: isDisabled ? AppColors.textSecondary : AppColors.primary,
-                size: 24,
-              ),
+            Icon(icon, color: Colors.white, size: 24),
             const SizedBox(height: 4),
             Text(
               label,
-              style: TextStyle(
-                color: isDisabled
-                    ? AppColors.textSecondary.withOpacity(0.6)
-                    : AppColors.textSecondary,
+              style: const TextStyle(
+                color: Colors.white,
                 fontSize: 10,
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _DetailChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _DetailChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: AppColors.primary),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
+          ),
+        ],
       ),
     );
   }

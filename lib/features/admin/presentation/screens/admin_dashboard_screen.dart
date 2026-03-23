@@ -141,7 +141,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     final newStatus = currentStatus == 'available' ? 'offline' : 'available';
     await _client
         .from('connectors')
-        .update({'status': newStatus}).eq('id', connectorId);
+        .update({'status': newStatus}).eq('connector_id', connectorId);
     await _loadStations();
   }
 

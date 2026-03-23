@@ -12,6 +12,8 @@ import '../features/charging_session/presentation/screens/qr_scanner_screen.dart
 import '../features/map/presentation/screens/map_screen.dart';
 import '../features/reviews/presentation/screens/reviews_screen.dart';
 import '../features/stations/presentation/screens/station_detail_screen.dart';
+import '../features/reservations/presentation/screens/reservation_screen.dart';
+import '../features/reservations/presentation/screens/my_reservations_screen.dart';
 import '../features/wallet/presentation/screens/transaction_history_screen.dart';
 import '../features/wallet/presentation/screens/wallet_screen.dart';
 
@@ -27,6 +29,8 @@ class AppRoutes {
   static const transactionHistory = '/wallet/history';
   static const reviews = '/station/:id/reviews';
   static const adminDashboard = '/admin';
+  static const reserve = '/reserve';
+  static const myReservations = '/my-reservations';
 }
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -107,6 +111,23 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.adminDashboard,
         builder: (context, state) => const AdminDashboardScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.reserve,
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>;
+          return ReservationScreen(
+            stationId: extra['stationId'],
+            stationName: extra['stationName'],
+            connectorId: extra['connectorId'],
+            connectorType: extra['connectorType'],
+            pricePerKwh: extra['pricePerKwh'],
+          );
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.myReservations,
+        builder: (context, state) => const MyReservationsScreen(),
       ),
     ],
     errorBuilder: (context, state) => Scaffold(

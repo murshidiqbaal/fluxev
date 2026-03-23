@@ -69,7 +69,7 @@ class _QrScannerScreenState extends ConsumerState<QrScannerScreen> {
       // 1. Check Wallet Balance
       final wallet = await client
           .from('wallets')
-          .select()
+          .select('wallet_id, user_id, balance, created_at, updated_at')
           .eq('user_id', userId)
           .maybeSingle();
 
@@ -80,14 +80,48 @@ class _QrScannerScreenState extends ConsumerState<QrScannerScreen> {
 
       // 2. Fetch Connector & Station info
       final connector = await client.from('connectors').select('''
-            *,
-            stations(name, address, price_per_kwh)
-          ''').eq('id', connectorId).maybeSingle();
+            id,
+            status,
+            connector_type,
+            max_power_kw,
+            station_id,
+            stations(
+              id,
+              name,
+              address,
+              price_per_kwh
+            )
+          ''').eq('connector_id', connectorId).maybeSingle();
 
       if (connector == null) throw Exception('Connector not found');
 
-      if (connector['status'] != 'available') {
-        throw Exception('This connector is currently ${connector['status']}');
+      // 3. Check for Reservations
+      final reservations = await client
+          .from('reservations')
+          .select()
+          .eq('connector_id', connectorId)
+          .eq('status', 'active');
+
+      final activeReservation = (reservations as List).cast<Map<String, dynamic>>().firstWhere(
+        (res) {
+          final start = DateTime.parse(res['reserved_start']);
+          final end = DateTime.parse(res['reserved_end']);
+          final now = DateTime.now();
+          // Arrival window: 10 mins before start until end
+          return now.isAfter(start.subtract(const Duration(minutes: 10))) &&
+                 now.isBefore(end);
+        },
+        orElse: () => {},
+      );
+
+      if (activeReservation.isNotEmpty) {
+        if (activeReservation['user_id'] != userId) {
+          throw Exception('This connector is reserved by another user');
+        } else {
+          // It's the current user's reservation
+          connector['is_reserved_by_me'] = true;
+          connector['reservation_id'] = activeReservation['id'];
+        }
       }
 
       setState(() {
@@ -112,12 +146,21 @@ class _QrScannerScreenState extends ConsumerState<QrScannerScreen> {
       final client = Supabase.instance.client;
       final userId = client.auth.currentUser?.id;
 
-      // Update connector to busy
+      // 1. If there's a reservation, complete it
+      if (_validatedConnector!['is_reserved_by_me'] == true) {
+        final reservationId = _validatedConnector!['reservation_id'];
+        await client
+            .from('reservations')
+            .update({'status': 'completed'})
+            .eq('reservation_id', reservationId);
+      }
+
+      // 2. Update connector to busy
       await client
           .from('connectors')
-          .update({'status': 'busy'}).eq('id', connectorId);
+          .update({'status': 'busy'}).eq('connector_id', connectorId);
 
-      // Create session
+      // 3. Create session
       final session = await client
           .from('charging_sessions')
           .insert({
@@ -297,7 +340,11 @@ class _QrScannerScreenState extends ConsumerState<QrScannerScreen> {
             children: [
               _buildDetail('Power', '${power.toStringAsFixed(0)} kW'),
               _buildDetail('Price', AppFormatters.formatCurrency(price)),
-              _buildDetail('Status', 'Ready', color: AppColors.success),
+              _buildDetail(
+                'Status', 
+                _validatedConnector!['is_reserved_by_me'] == true ? 'Reserved' : 'Ready', 
+                color: _validatedConnector!['is_reserved_by_me'] == true ? AppColors.primary : AppColors.success
+              ),
             ],
           ),
           const SizedBox(height: 24),

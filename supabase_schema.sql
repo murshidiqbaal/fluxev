@@ -51,16 +51,17 @@ CREATE TABLE public.charging_sessions (
 
 -- 6. Wallets Table
 CREATE TABLE public.wallets (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  wallet_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL UNIQUE REFERENCES public.users(id) ON DELETE CASCADE,
   balance NUMERIC DEFAULT 0.0,
+  created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
 -- 7. Transactions Table
 CREATE TABLE public.transactions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  wallet_id UUID NOT NULL REFERENCES public.wallets(id) ON DELETE CASCADE,
+  wallet_id UUID NOT NULL REFERENCES public.wallets(wallet_id) ON DELETE CASCADE,
   session_id UUID REFERENCES public.charging_sessions(id) ON DELETE SET NULL,
   amount NUMERIC NOT NULL,
   type transaction_type NOT NULL,

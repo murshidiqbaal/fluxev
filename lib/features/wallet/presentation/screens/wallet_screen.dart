@@ -18,7 +18,7 @@ final walletProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
     // Try to fetch the wallet for this user
     final wallet = await client
         .from('wallets')
-        .select()
+        .select('wallet_id, user_id, balance, created_at, updated_at')
         .eq('user_id', userId)
         .maybeSingle();
 
@@ -31,8 +31,9 @@ final walletProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
             'user_id': userId,
             'balance': 0.0,
             'created_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toIso8601String(),
           })
-          .select()
+          .select('wallet_id, user_id, balance, created_at, updated_at')
           .single();
     }
 
@@ -498,7 +499,7 @@ class WalletScreen extends ConsumerWidget {
       // Fetch current wallet for the logged-in user (safer than using walletId)
       final wallet = await client
           .from('wallets')
-          .select()
+          .select('wallet_id, user_id, balance, created_at, updated_at')
           .eq('user_id', userId)
           .maybeSingle();
 

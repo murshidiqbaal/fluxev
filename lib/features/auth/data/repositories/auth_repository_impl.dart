@@ -54,7 +54,7 @@ class AuthRepositoryImpl implements AuthRepository {
       // Profile and wallet are created automatically by the Supabase DB trigger.
       // Return a local UserEntity immediately — the trigger runs server-side.
       final profile = {
-        'id': user.id,
+        'user_id': user.id,
         'email': email,
         'full_name': fullName,
         'role': 'user',
@@ -106,15 +106,18 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   Future<UserEntity> _getOrCreateProfile(User user) async {
-    final profile =
-        await _client.from('users').select().eq('id', user.id).maybeSingle();
+    final profile = await _client
+        .from('users')
+        .select()
+        .eq('user_id', user.id)
+        .maybeSingle();
 
     if (profile != null) {
       return UserModel.fromJson(profile);
     }
 
     final newProfile = {
-      'id': user.id,
+      'user_id': user.id,
       'email': user.email ?? '',
       'full_name': user.userMetadata?['full_name'] ?? '',
       'role': 'user',

@@ -15,23 +15,45 @@ class StationRepository {
 
   Future<List<StationEntity>> getAllStations() async {
     final data = await _client.from('stations').select('''
-      *,
-      connectors(id, status, connector_type, max_power_kw)
+      station_id,
+      name,
+      address,
+      latitude,
+      longitude,
+      price_per_kwh,
+      status,
+      connectors(
+        connector_id,
+        status,
+        connector_type,
+        max_power_kw
+      )
     ''').eq('status', 'active');
     return (data as List).map((j) => StationModel.fromJson(j)).toList();
   }
 
   Future<StationEntity?> getStation(String id) async {
     final data = await _client.from('stations').select('''
-      *,
-      connectors(id, status, connector_type, max_power_kw)
-    ''').eq('id', id).maybeSingle();
+      station_id,
+      name,
+      address,
+      latitude,
+      longitude,
+      price_per_kwh,
+      status,
+      connectors(
+        connector_id,
+        status,
+        connector_type,
+        max_power_kw
+      )
+    ''').eq('station_id', id).maybeSingle();
     return StationModel.fromJson(data!);
   }
 
   Stream<List<Map<String, dynamic>>> watchConnectorStatus() {
     return _client.from('connectors').stream(
-        primaryKey: ['id']).map((list) => list.cast<Map<String, dynamic>>());
+        primaryKey: ['connector_id']).map((list) => list.cast<Map<String, dynamic>>());
   }
 
   Future<void> addStation(Map<String, dynamic> data) async {
@@ -39,7 +61,7 @@ class StationRepository {
   }
 
   Future<void> updateStation(String id, Map<String, dynamic> data) async {
-    await _client.from('stations').update(data).eq('id', id);
+    await _client.from('stations').update(data).eq('station_id', id);
   }
 }
 

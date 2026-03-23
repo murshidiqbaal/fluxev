@@ -216,7 +216,6 @@ class StationDetailScreen extends ConsumerWidget {
                       },
                     ).animate(delay: 700.ms).fadeIn(),
                     const SizedBox(height: 12),
-                    // Reviews link
                     NeonButton(
                       label: 'View Reviews',
                       isOutlined: true,
@@ -224,7 +223,73 @@ class StationDetailScreen extends ConsumerWidget {
                       onPressed: () =>
                           context.push('/station/${station.id}/reviews'),
                     ).animate(delay: 800.ms).fadeIn(),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 32),
+
+                    // Connectors Section
+                    Text(
+                      'Connectors',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ).animate(delay: 900.ms).fadeIn(),
+                    const SizedBox(height: 12),
+                    ...station.connectors.map((connector) {
+                      final status = connector['status'] as String;
+                      final type = connector['connector_type'] as String;
+                      final power = (connector['max_power_kw'] as num).toDouble();
+                      
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: GlassCard(
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(Icons.power_input_rounded, color: AppColors.primary),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      type,
+                                      style: const TextStyle(fontWeight: FontWeight.bold),
+                                    ),
+                                    Text(
+                                      '${power.toStringAsFixed(0)} kW • $status',
+                                      style: TextStyle(
+                                        color: status == 'available' 
+                                          ? AppColors.markerAvailable 
+                                          : AppColors.textSecondary,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (status == 'available')
+                                TextButton(
+                                  onPressed: () => context.push(
+                                    AppRoutes.reserve,
+                                    extra: {
+                                      'stationId': station.id,
+                                      'stationName': station.name,
+                                      'connectorId': connector['id'],
+                                      'connectorType': type,
+                                      'pricePerKwh': station.pricePerKwh,
+                                    },
+                                  ),
+                                  child: const Text('Reserve'),
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                    const SizedBox(height: 40),
                   ]),
                 ),
               ),

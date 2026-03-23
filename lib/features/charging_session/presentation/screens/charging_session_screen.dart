@@ -44,8 +44,8 @@ class _ChargingSessionScreenState extends ConsumerState<ChargingSessionScreen> {
     try {
       final session = await _client.from('charging_sessions').select('''
             *,
-            connectors(id, max_power_kw, stations(price_per_kwh))
-          ''').eq('id', widget.sessionId).maybeSingle();
+            connectors(connector_id, max_power_kw, stations(price_per_kwh))
+          ''').eq('session_id', widget.sessionId).maybeSingle();
 
       if (session == null) throw Exception('Session not found');
 
@@ -90,7 +90,7 @@ class _ChargingSessionScreenState extends ConsumerState<ChargingSessionScreen> {
       // 1. Calculate & Validate Wallet
       final wallet = await _client
           .from('wallets')
-          .select()
+          .select('wallet_id, user_id, balance, created_at, updated_at')
           .eq('user_id', userId)
           .maybeSingle();
 
@@ -106,7 +106,7 @@ class _ChargingSessionScreenState extends ConsumerState<ChargingSessionScreen> {
       // 2. Mark Connector AVAILABLE (important to free it up immediately)
       await _client
           .from('connectors')
-          .update({'status': 'available'}).eq('id', connectorId);
+          .update({'status': 'available'}).eq('connector_id', connectorId);
 
       // 3. Update Session to COMPLETED
       await _client.from('charging_sessions').update({
@@ -114,7 +114,7 @@ class _ChargingSessionScreenState extends ConsumerState<ChargingSessionScreen> {
         'energy_consumed_kwh': _energyConsumed,
         'total_cost': _totalCost,
         'status': 'completed',
-      }).eq('id', widget.sessionId);
+      }).eq('session_id', widget.sessionId);
 
       // 4. Deduct Wallet Balance
       final newBalance = balance - _totalCost;
@@ -125,7 +125,7 @@ class _ChargingSessionScreenState extends ConsumerState<ChargingSessionScreen> {
 
       // 5. Create Transaction Log
       await _client.from('transactions').insert({
-        'wallet_id': wallet?['id'],
+        'wallet_id': wallet?['wallet_id'],
         'session_id': widget.sessionId,
         'amount': _totalCost,
         'type': 'debit',
