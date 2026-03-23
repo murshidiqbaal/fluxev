@@ -16,6 +16,9 @@ import '../features/reservations/presentation/screens/reservation_screen.dart';
 import '../features/reservations/presentation/screens/my_reservations_screen.dart';
 import '../features/wallet/presentation/screens/transaction_history_screen.dart';
 import '../features/wallet/presentation/screens/wallet_screen.dart';
+import '../features/profile/presentation/screens/profile_setup_screen.dart';
+import '../features/profile/presentation/screens/profile_screen.dart';
+import '../features/profile/presentation/providers/profile_provider.dart';
 
 class AppRoutes {
   static const splash = '/';
@@ -31,29 +34,40 @@ class AppRoutes {
   static const adminDashboard = '/admin';
   static const reserve = '/reserve';
   static const myReservations = '/my-reservations';
+  static const profileSetup = '/profile-setup';
+  static const profile = '/profile';
 }
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authStateProvider);
+  final profileAsync = ref.watch(profileProvider);
 
   return GoRouter(
     initialLocation: AppRoutes.splash,
     redirect: (context, state) {
-      // Don't redirect while checking auth state
-      if (authState.isLoading) return null;
+      if (authState.isLoading || profileAsync.isLoading) return null;
 
-      final isLoggedIn = authState.valueOrNull != null;
+      final user = authState.valueOrNull;
+      final isLoggedIn = user != null;
+      final hasProfile = profileAsync.valueOrNull != null;
+
       final isAuthRoute = state.matchedLocation == AppRoutes.login ||
           state.matchedLocation == AppRoutes.signup ||
           state.matchedLocation == AppRoutes.splash;
 
       if (!isLoggedIn && !isAuthRoute) return AppRoutes.login;
 
-      // If logged in and on login/signup, go to map
-      if (isLoggedIn &&
-          (state.matchedLocation == AppRoutes.login ||
-              state.matchedLocation == AppRoutes.signup)) {
-        return AppRoutes.map;
+      // If logged in
+      if (isLoggedIn) {
+        // 1. If no profile and not on setup page, go to setup
+        if (!hasProfile && state.matchedLocation != AppRoutes.profileSetup) {
+          return AppRoutes.profileSetup;
+        }
+
+        // 2. If has profile and on setup page or auth routes, go to map
+        if (hasProfile && (state.matchedLocation == AppRoutes.profileSetup || isAuthRoute)) {
+          return AppRoutes.map;
+        }
       }
 
       return null;
@@ -128,6 +142,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.myReservations,
         builder: (context, state) => const MyReservationsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.profileSetup,
+        builder: (context, state) => const ProfileSetupScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.profile,
+        builder: (context, state) => const ProfileScreen(),
       ),
     ],
     errorBuilder: (context, state) => Scaffold(

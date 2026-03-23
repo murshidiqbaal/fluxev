@@ -7,13 +7,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:shake/shake.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../routing/app_router.dart';
 import '../../../../shared/widgets/glass_card.dart';
-import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../stations/data/models/station_model.dart';
 import '../../../stations/data/repositories/station_repository.dart';
 import '../../../stations/domain/entities/station_entity.dart';
@@ -57,6 +57,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   bool _locationLoading = false;
   String? _locationError;
   List<StationEntity> _allStations = [];
+  late ShakeDetector _shakeDetector;
+  final _searchController = TextEditingController();
+  List<StationEntity> _filteredStations = [];
+  bool _isSearching = false;
   static const _defaultCenter = LatLng(8.5241, 76.9366);
   static const double _nearbyRadiusKm = 5.0; // Filter stations within 5km
 
@@ -64,6 +68,22 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   void initState() {
     super.initState();
     _initializeMap();
+    _shakeDetector = ShakeDetector.autoStart(
+      onPhoneShake: (event) {
+        if (mounted) {
+          context.push(AppRoutes.profile);
+        }
+      },
+      shakeThresholdGravity: 2.7,
+    );
+  }
+
+  @override
+  void dispose() {
+    _shakeDetector.stopListening();
+    _mapController.dispose();
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _initializeMap() async {
@@ -270,6 +290,37 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     return AppColors.markerBusy;
   }
 
+  void _onSearchChanged(String query) {
+    if (query.isEmpty) {
+      setState(() {
+        _isSearching = false;
+        _filteredStations = [];
+      });
+      return;
+    }
+
+    final filtered = _allStations.where((s) {
+      final nameMatches = s.name.toLowerCase().contains(query.toLowerCase());
+      final addressMatches =
+          s.address.toLowerCase().contains(query.toLowerCase());
+      return nameMatches || addressMatches;
+    }).toList();
+
+    setState(() {
+      _isSearching = true;
+      _filteredStations = filtered;
+    });
+  }
+
+  void _selectStation(StationEntity station) {
+    setState(() {
+      _selectedStation = station;
+      _isSearching = false;
+      _searchController.text = station.name;
+    });
+    _mapController.move(station.latLng, 16);
+  }
+
   void _showNearbyStationsSheet() {
     final nearbyStations = _getNearbyStations();
 
@@ -325,7 +376,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                             -1, 0, 0, 0, 255, // Red
                             0, -1, 0, 0, 255, // Green
                             0, 0, -1, 0, 255, // Blue
-                            0, 0, 0, 1, 0,    // Alpha
+                            0, 0, 0, 1, 0, // Alpha
                           ]),
                           child: Opacity(
                             opacity: 0.85,
@@ -366,52 +417,128 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   ],
                 ),
 
-          // Top Search Bar
+          // Top Search Bar & Results
           Positioned(
             top: 0,
             left: 0,
             right: 0,
             child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Hero(
-                  tag: 'search_bar',
-                  child: GlassCard(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    borderRadius: 30,
-                    child: Row(
-                      children: [
-                        const Icon(Icons.search_rounded, color: AppColors.primary, size: 24),
-                        const SizedBox(width: 12),
-                        const Expanded(
-                          child: TextField(
-                            style: TextStyle(color: Colors.white, fontSize: 15),
-                            decoration: InputDecoration(
-                              hintText: 'Search stations, location...',
-                              hintStyle: TextStyle(color: Colors.white70, fontSize: 14),
-                              border: InputBorder.none,
-                              enabledBorder: InputBorder.none,
-                              focusedBorder: InputBorder.none,
-                              filled: false,
-                              contentPadding: EdgeInsets.zero,
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Hero(
+                      tag: 'search_bar',
+                      child: GlassCard(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 8),
+                        borderRadius: 30,
+                        child: Row(
+                          children: [
+                            const Icon(Icons.search_rounded,
+                                color: AppColors.primary, size: 24),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextField(
+                                controller: _searchController,
+                                style: const TextStyle(
+                                    color: Colors.white, fontSize: 15),
+                                decoration: const InputDecoration(
+                                  hintText: 'Search stations, location...',
+                                  hintStyle: TextStyle(
+                                      color: Colors.white70, fontSize: 14),
+                                  border: InputBorder.none,
+                                  enabledBorder: InputBorder.none,
+                                  focusedBorder: InputBorder.none,
+                                  filled: false,
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                                onChanged: _onSearchChanged,
+                              ),
                             ),
-                          ),
+                            if (_searchController.text.isNotEmpty)
+                              IconButton(
+                                icon: const Icon(Icons.close_rounded,
+                                    color: Colors.white70, size: 18),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  _onSearchChanged('');
+                                  FocusScope.of(context).unfocus();
+                                },
+                              ),
+                            const SizedBox(width: 8),
+                            Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withOpacity(0.2),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.tune_rounded,
+                                  color: AppColors.primary, size: 18),
+                            ),
+                          ],
                         ),
-                        Container(
-                          width: 32,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withOpacity(0.2),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.tune_rounded, color: AppColors.primary, size: 18),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
-                ),
+
+                  // Search Results
+                  if (_isSearching && _filteredStations.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: GlassCard(
+                        padding: EdgeInsets.zero,
+                        borderRadius: 20,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 300),
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            padding: EdgeInsets.zero,
+                            itemCount: _filteredStations.length,
+                            itemBuilder: (context, index) {
+                              final station = _filteredStations[index];
+                              return ListTile(
+                                leading: Icon(
+                                  Icons.ev_station_rounded,
+                                  color: _markerColor(station),
+                                ),
+                                title: Text(
+                                  station.name,
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold),
+                                ),
+                                subtitle: Text(
+                                  station.address,
+                                  style: const TextStyle(
+                                      color: Colors.white60, fontSize: 12),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                trailing: _userLocation != null
+                                    ? Text(
+                                        '${DistanceHelper.calculateDistance(_userLocation!, station.latLng).toStringAsFixed(1)} km',
+                                        style: const TextStyle(
+                                            color: AppColors.primary,
+                                            fontSize: 11),
+                                      )
+                                    : null,
+                                onTap: () {
+                                  _selectStation(station);
+                                  FocusScope.of(context).unfocus();
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ).animate().fadeIn().slideY(begin: -0.1),
+                ],
               ),
-            ).animate().slideY(begin: -1, duration: 600.ms, curve: Curves.easeOutCubic),
+            ).animate().slideY(
+                begin: -1, duration: 600.ms, curve: Curves.easeOutCubic),
           ),
 
           // Right Floating Floating Controls
@@ -436,7 +563,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   isLoading: _locationLoading,
                 ),
               ],
-            ).animate(target: _selectedStation != null ? 1 : 0).moveY(end: -220, duration: 300.ms),
+            )
+                .animate(target: _selectedStation != null ? 1 : 0)
+                .moveY(end: -220, duration: 300.ms),
           ),
 
           // Bottom Bar (Horizontal glass)
@@ -447,7 +576,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             child: SafeArea(
               child: GlassCard(
                 borderRadius: 25,
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
@@ -469,7 +599,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   ],
                 ),
               ),
-            ).animate().slideY(begin: 1, duration: 600.ms, curve: Curves.easeOutCubic),
+            )
+                .animate()
+                .slideY(begin: 1, duration: 600.ms, curve: Curves.easeOutCubic),
           ),
 
           // Selected Station Card (Sliding panel)
@@ -488,9 +620,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
-                            color: _markerColor(_selectedStation!).withOpacity(0.2),
+                            color: _markerColor(_selectedStation!)
+                                .withOpacity(0.2),
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Row(
@@ -523,11 +657,16 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                         if (_userLocation != null)
                           Text(
                             '${DistanceHelper.calculateDistance(_userLocation!, _selectedStation!.latLng).toStringAsFixed(1)} km',
-                            style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600),
+                            style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600),
                           ),
                         IconButton(
-                          onPressed: () => setState(() => _selectedStation = null),
-                          icon: const Icon(Icons.close_rounded, size: 20, color: Colors.white70),
+                          onPressed: () =>
+                              setState(() => _selectedStation = null),
+                          icon: const Icon(Icons.close_rounded,
+                              size: 20, color: Colors.white70),
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
                         ),
@@ -536,12 +675,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     const SizedBox(height: 12),
                     Text(
                       _selectedStation!.name,
-                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: -0.5),
+                      style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: -0.5),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       _selectedStation!.address,
-                      style: const TextStyle(color: Colors.white60, fontSize: 13),
+                      style:
+                          const TextStyle(color: Colors.white60, fontSize: 13),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -550,7 +694,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       children: [
                         _DetailChip(
                           icon: Icons.power_rounded,
-                          label: '${_selectedStation!.availableConnectors}/${_selectedStation!.totalConnectors} Available',
+                          label:
+                              '${_selectedStation!.availableConnectors}/${_selectedStation!.totalConnectors} Available',
                         ),
                         const SizedBox(width: 8),
                         _DetailChip(
@@ -564,12 +709,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       children: [
                         Expanded(
                           child: ElevatedButton(
-                            onPressed: () => context.push('/station/${_selectedStation!.id}'),
+                            onPressed: () => context
+                                .push('/station/${_selectedStation!.id}'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.primary,
                               foregroundColor: AppColors.background,
                               padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16)),
                             ),
                             child: const Text('RESERVE NOW'),
                           ),
@@ -579,14 +726,16 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                           decoration: BoxDecoration(
                             color: Colors.white.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.white.withOpacity(0.1)),
+                            border: Border.all(
+                                color: Colors.white.withOpacity(0.1)),
                           ),
                           child: IconButton(
                             onPressed: () => _openMapsNavigation(
                               _selectedStation!.latLng.latitude,
                               _selectedStation!.latLng.longitude,
                             ),
-                            icon: const Icon(Icons.directions_rounded, color: AppColors.primary),
+                            icon: const Icon(Icons.directions_rounded,
+                                color: AppColors.primary),
                             padding: const EdgeInsets.all(12),
                           ),
                         ),
@@ -594,7 +743,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     ),
                   ],
                 ),
-              ).animate().slideY(begin: 1, duration: 400.ms, curve: Curves.easeOutBack).fadeIn(),
+              )
+                  .animate()
+                  .slideY(begin: 1, duration: 400.ms, curve: Curves.easeOutBack)
+                  .fadeIn(),
             ),
         ],
       ),
@@ -629,7 +781,8 @@ class _CircularGlassButton extends StatelessWidget {
               ? const SizedBox(
                   width: 20,
                   height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: AppColors.primary),
                 )
               : Icon(icon, color: AppColors.primary, size: 22),
         ),
@@ -697,7 +850,8 @@ class _DetailChip extends StatelessWidget {
           const SizedBox(width: 6),
           Text(
             label,
-            style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
+            style: const TextStyle(
+                color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
           ),
         ],
       ),
